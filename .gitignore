@@ -1,0 +1,42 @@
+# ─── Сборка / Build ──────────────────────────────
+build/
+out/
+cmake-build-*/
+[Bb]in/
+[Bb]in-int/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.ninja
+
+# ─── Скомпилированные файлы ──────────────────────
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+*.exe
+*.pdb
+*.ilk
+
+# ─── IDE ─────────────────────────────────────────
+.idea/
+.vs/
+.vscode/
+*.user
+*.suo
+*.swp
+
+# ─── Логи и временные файлы ──────────────────────
+*.log
+*.tmp
+*.bak
+*.orig
+
+# ─── OS ──────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -9,11 +9,91 @@
 #include "Core/Time.h"
 #include "Input/Input.h"
 #include "Input/MouseCodes.h"
+#include "FileSystem/FileSystem.h"
+#include "FileSystem/Path.h"
 #include "Themes/DarkTheme.h"
 #include "Serialization/SceneSerializer.h"
 
 namespace Good
 {
+
+namespace
+{
+    // Ищет ассет во всех типичных местах относительно рабочей директории:
+    // запуск из корня проекта, из папки редактора, из build/bin.
+    // Возвращает первый найденный путь либо fileName как есть.
+    std::string ResolveAssetPath(const std::string& fileName)
+    {
+        const char* searchDirs[] =
+        {
+            "Editor/Assets/",
+            "Assets/",
+            "../Editor/Assets/",
+            "../../Editor/Assets/",
+            ""
+        };
+
+        for (const char* dir : searchDirs)
+        {
+            std::string fullPath = std::string(dir) + fileName;
+            if (FileSystem::Exists(Path(fullPath)))
+                return fullPath;
+        }
+        return fileName;
+    }
+
+    bool LoadEditorFont()
+    {
+        // 1. Шрифт, поставляемый с редактором
+        const std::string bundledFont = ResolveAssetPath("Font.ttf");
+        if (FileSystem::Exists(Path(bundledFont)) &&
+            FontAtlas::Get().LoadTTF(bundledFont, 20.0f))
+            return true;
+
+        // 2. Системные шрифты как запасной вариант (по платформам)
+#if defined(GOOD_PLATFORM_WINDOWS)
+        const char* systemFonts[] =
+        {
+            "C:/Windows/Fonts/consola.ttf",
+            "C:/Windows/Fonts/arial.ttf"
+        };
+#elif defined(GOOD_PLATFORM_MACOS)
+        const char* systemFonts[] =
+        {
+            "/System/Library/Fonts/Menlo.ttc",
+            "/System/Library/Fonts/Supplemental/Courier New.ttf"
+        };
+#else
+        const char* systemFonts[] =
+        {
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+            "/usr/share/fonts/TTF/DejaVuSansMono.ttf"
+        };
+#endif
+
+        for (const char* fontPath : systemFonts)
+        {
+            if (FileSystem::Exists(Path(fontPath)) &&
+                FontAtlas::Get().LoadTTF(fontPath, 18.0f))
+                return true;
+        }
+        return false;
+    }
+
+    bool LoadEditorIcons()
+    {
+        const char* iconFiles[] = { "icons.png", "icons.bmp" };
+        for (const char* iconFile : iconFiles)
+        {
+            const std::string path = ResolveAssetPath(iconFile);
+            if (FileSystem::Exists(Path(path)) &&
+                IconAtlas::Get().Load(path, 32, 32))
+                return true;
+        }
+        return false;
+    }
+}
 
 EditorLayer::EditorLayer()  = default;
 EditorLayer::~EditorLayer() { Shutdown(); }
@@ -29,23 +109,18 @@ bool EditorLayer::Initialize(uint32 w, uint32 h)
         return false;
     }
 
-    // Шрифт
-    bool fontLoaded = false;
-    if (!fontLoaded) fontLoaded = FontAtlas::Get().LoadTTF("C:/Users/Lenovo/Desktop/GoodEngine/Editor/Assets/Font.ttf", 20.0f);
-    if (!fontLoaded) fontLoaded = FontAtlas::Get().LoadTTF("C:/Windows/Fonts/consola.ttf", 18.0f);
-    if (!fontLoaded) fontLoaded = FontAtlas::Get().LoadTTF("C:/Windows/Fonts/arial.ttf", 18.0f);
-    if (!fontLoaded) { FontAtlas::Get().Initialize(); }
-
-    // Иконки — сначала пробуем загрузить атлас из файла
-    if (!IconAtlas::Get().Load("C:/Users/Lenovo/Desktop/GoodEngine/Editor/Assets/icons.png", 32, 32))
+    // Шрифт: сначала из ассетов редактора, потом системный (по платформе)
+    if (!LoadEditorFont())
     {
-        // Если PNG не загрузился — пробуем BMP
-        if (!IconAtlas::Get().Load("C:/Users/Lenovo/Desktop/GoodEngine/Editor/Assets/icons.bmp", 32, 32))
-        {
-            // Если нет файлов — генерируем программно
-            GOOD_LOG_WARN("Editor", "Icon atlas not found, generating default");
-            IconAtlas::Get().CreateDefault();
-        }
+        GOOD_LOG_WARN("Editor", "No TTF font found, using built-in fallback");
+        FontAtlas::Get().Initialize();
+    }
+
+    // Иконки: пробуем PNG/BMP из ассетов, иначе генерируем программно
+    if (!LoadEditorIcons())
+    {
+        GOOD_LOG_WARN("Editor", "Icon atlas not found, generating default");
+        IconAtlas::Get().CreateDefault();
     }
 
     if (!m_MainWindow.Initialize(w, h))
@@ -68,9 +143,12 @@ bool EditorLayer::Initialize(uint32 w, uint32 h)
     {
         if (m_ActiveScene)
         {
-            std::string path = "C:/Users/Lenovo/Desktop/GoodEngine/scene.json";
-            SceneSerializer::SaveToFile(*m_ActiveScene, path);
-            GOOD_LOG_INFO("Editor", "Scene saved to '{}'", path);
+            const std::string path = "Scenes/scene.json";
+            FileSystem::MakeDirectories(Path("Scenes"));
+            if (SceneSerializer::SaveToFile(*m_ActiveScene, path))
+                GOOD_LOG_INFO("Editor", "Scene saved to '{}'", path);
+            else
+                GOOD_LOG_ERROR("Editor", "Failed to save scene to '{}'", path);
         }
     };
 
@@ -78,7 +156,12 @@ bool EditorLayer::Initialize(uint32 w, uint32 h)
     {
         if (m_ActiveScene)
         {
-            std::string path = "C:/Users/Lenovo/Desktop/GoodEngine/scene.json";
+            const std::string path = "Scenes/scene.json";
+            if (!FileSystem::Exists(Path(path)))
+            {
+                GOOD_LOG_WARN("Editor", "Scene file '{}' not found", path);
+                return;
+            }
             if (SceneSerializer::LoadFromFile(*m_ActiveScene, path))
             {
                 m_MainWindow.GetHierarchy().SetScene(m_ActiveScene);
